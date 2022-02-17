@@ -1,7 +1,7 @@
 ---
 title: "Snow Data Assignment: Web Scraping, Functions, and Iteration"
-author: "Nathan Mueller"
-date: "2-7-2022"
+author: "Austin Stone Cold Hopkins"
+date: "`r format(Sys.time(), '%d %b, %Y')`"
 output: html_document
 ---
 
@@ -10,6 +10,7 @@ library(rvest)
 library(tidyverse)
 library(lubridate)
 library(readxl)
+
 
 ```
 
@@ -137,11 +138,62 @@ ggplot(snow_yearly,aes(x=Year,y=mean_height,color=site)) +
 
 
 # Assignment:
-
+#Q1
 1. Extract the meteorological data URLs. Here we want you to use the `rvest` package to get the URLs for the `SASP forcing` and `SBSP_forcing` meteorological datasets.
+
+```{r}
+site_url <- 'https://snowstudies.org/archived-data/'
+
+#Read the web url
+webpage <- read_html(site_url)
+
+#See if we can extract tables and get the data that way
+tables <- webpage %>%
+  html_nodes('table') %>%
+  magrittr::extract2(3) %>%
+  html_table(fill = TRUE)
+
+
+#That didn't work, so let's try a different approach
+
+#Extract only weblinks and then the URLs!
+links <- webpage %>%
+  html_nodes('a') %>%
+  .[grepl('forcing',.)] %>%
+  html_attr('href')
+
+
+links
+```
+#Q2
 
 2. Download the meteorological data. Use the `download_file` and `str_split_fixed` commands to download the data and save it in your data folder. You can use a for loop or a map function. 
 
+```{r}
+#Grab only the name of the file by splitting out on forward slashes
+splits <- str_split_fixed(links,'/',8)
+splits
+
+#Keep only the 8th column
+dataset <- splits[,8]
+dataset
+
+
+#generate a file list for where the data goes
+file_names <- paste0('data/',dataset)
+file_names
+
+for(i in 1:2){
+  download.file(links[i],destfile=file_names[i])
+}
+
+downloaded <- file.exists(file_names)
+
+evaluate <- !all(downloaded)
+
+```
+
+#Q3
 3. Write a custom function to read in the data and append a site column to the data. 
 
 ```{r}
@@ -155,16 +207,69 @@ headers <- pdf_text('https://snowstudies.org/wp-content/uploads/2022/02/Serially
   .[,2] %>%
   .[1:26] %>%
   str_trim(side = "left")
+read_files_hw <- function(file){
+                      site_name <- str_split_fixed(file,'_',3)[,2]
+                     
+                     df <- read_table(file, col_names = headers, skip = 4)  %>%
+                     mutate(site = site_name)
+}
 
 ```
-
+#Q4
 4. Use the `map` function to read in both meteorological files. Display a summary of your tibble.
+```{r}
+meteor_data_full <- map_dfr(file_names,read_files_hw)
+meteor_data_full
+```
 
+#Q5
 5. Make a line plot of mean temp by year by site (using the `air temp [K]` variable). Is there anything suspicious in the plot? Adjust your filtering if needed.
 
+```{r}
+meteor_yearly <- meteor_data_full %>%
+  group_by(year,site) %>%
+  filter(year != 2003) %>%
+  summarize(mean_temp = mean(`air temp [K]`,na.rm=T))
+ggplot(meteor_yearly,aes(x=year,y=mean_temp,color=site)) + 
+  geom_point() + geom_line() +
+  ggthemes::theme_few() + 
+  ggthemes::scale_color_few()
+```
+
+On the initial examination of the data I noticed something *suspicious* in the data. The year 2003 had strangely low temperature, average temps of roughly 10 degrees cooler than the other years. What likely happened was some change in the way data was collected or managed between 2003 and the others. It seems completely unreasonable that one year would have that large of a difference. 
+
+
+#Q6
 6. Write a function that makes line plots of monthly average temperature at each site for a given year. Use a for loop to make these plots for 2005 to 2010. Are monthly average temperatures at the Senator Beck Study Plot ever warmer than the Snow Angel Study Plot?
 Hint: https://ggplot2.tidyverse.org/reference/print.ggplot.html
 
-Bonus: Make a plot of average daily precipitation by day of year (averaged across all available years). Color each site. 
+```{r}
+monthly_temp <- function(data = meteor_data_full){
+  meteor_monthly <- meteor_data_full %>%
+    group_by(year,month,site) %>%
+    summarize(mean_temp = mean(`air temp [K]`,na.rm=T))
+  
+  meteor_monthly$year <- as.numeric(meteor_monthly$year)
+for(i in c(2005:2010)){
+  
+   gg_data <- meteor_monthly %>%
+               filter(year == i)
+   
+    print(ggplot(gg_data,aes(x=month,y=mean_temp,color=site)) + 
+          geom_point() + geom_line() +
+          ggtitle(i) + ylab("Mean Air Temperature (K)") + xlab("Month") +
+          ylim(min = 255, max = 290) +
+          ggthemes::theme_few() + 
+          ggthemes::scale_color_few())
+  }
+}
+monthly_temp()
+```
 
-Bonus #2: Use a function and for loop to create yearly plots of precipitation by day of year. Color each site. 
+
+
+
+There was never a time from 2005 to 2010 where the mean monthly temperature at the Senator Beck site higher than temps at the Snow Angel location. Theres some slight year to year variation but each year typically follows the same pattern. THe difference between sitely monthly temperatures seems fairly steady across all the data. Neither site seems to be related to the other. Though the data is limited, it appears that the peak widens slightly and moves to the right. This could be showing longer periods of hotter temperatures and that these are happening a bit later in the year. 
+
+ 
+*The End*
